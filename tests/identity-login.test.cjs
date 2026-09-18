@@ -57,30 +57,33 @@ for(const options of [{captcha:true},{method:'get'},{action:'https://evil.invali
  check(()=>assert.notEqual(r.result.state,'submitted'));check(()=>assert.equal(r.clicks,0));check(()=>assert.equal(r.pass.value,''));
 }
 
-const electricityService='https://hub.17wanxiao.com/bsacs/light.action?flag=cassso30_jhdxjrxyjf&ecardFunc=index';
-const electricityLogin='http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(electricityService);
-for(const url of [electricityLogin,electricityLogin.replace(/^http:/,'https:')]){
- const r=run({url,action:url});check(()=>assert.equal(r.result.state,'submitted'));check(()=>assert.equal(r.form.posted,true));
- check(()=>assert.equal(new URL(r.form.action).searchParams.get('service'),electricityService));
- check(()=>assert.equal(new URL(r.form.action).searchParams.has('ecardFunc'),false));
-}
-for(const service of [electricityService.replace('https:','http:'),electricityService.replace('hub.17wanxiao.com','hub.17wanxiao.com.evil.invalid'),electricityService.replace('hub.17wanxiao.com','other.17wanxiao.com'),electricityService.replace('hub.17wanxiao.com','user@hub.17wanxiao.com'),electricityService.replace('hub.17wanxiao.com','hub.17wanxiao.com:8443'),electricityService+'&service='+encodeURIComponent('https://evil.invalid/')]){
+// 用电缴费已移除：登录适配器不得再把密码提交给任何缴费/支付站点。
+// 保留原 hub 中转地址作为负样本，逐项确认它不再被接受。
+const removedService='https://hub.17wanxiao.com/bsacs/light.action?flag=cassso30_jhdxjrxyjf&ecardFunc=index';
+const removedLogin='http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(removedService);
+for(const service of [removedService,removedService.replace('https:','http:'),removedService.replace('hub.17wanxiao.com','hub.17wanxiao.com.evil.invalid'),removedService.replace('hub.17wanxiao.com','other.17wanxiao.com'),removedService.replace('hub.17wanxiao.com','user@hub.17wanxiao.com'),removedService.replace('hub.17wanxiao.com','hub.17wanxiao.com:8443'),removedService+'&service='+encodeURIComponent('https://evil.invalid/')]){
  const url='http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(service);
- for(const opts of [{url,action:electricityLogin},{url:electricityLogin,action:url}]){
+ for(const opts of [{url,action:removedLogin},{url:removedLogin,action:url},{url,action:url}]){
   const r=run(opts);check(()=>assert.equal(r.result.state,'unsupported'));check(()=>assert.equal(r.clicks,0));check(()=>assert.equal(r.pass.value,''));
  }
 }
-for(const opts of [{url:electricityService,action:electricityService},{url:electricityLogin,action:electricityService},{url:electricityLogin,action:electricityLogin,captcha:true}]){
+for(const opts of [{url:removedService,action:removedService},{url:removedLogin,action:removedService},{url:removedLogin,action:removedLogin,captcha:true}]){
  const r=run(opts);check(()=>assert.notEqual(r.result.state,'submitted'));check(()=>assert.equal(r.clicks,0));check(()=>assert.equal(r.pass.value,''));
 }
 const cloudPayment='https://h5cloud.17wanxiao.com:18443/CloudPayment/bill/type.do';
-for(const opts of [{url:cloudPayment,action:cloudPayment},{url:electricityLogin,action:cloudPayment},{url:'http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(cloudPayment),action:electricityLogin}]){
+for(const opts of [{url:cloudPayment,action:cloudPayment},{url:removedLogin,action:cloudPayment},{url:'http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(cloudPayment),action:removedLogin}]){
  const r=run(opts);check(()=>assert.equal(r.result.state,'unsupported'));check(()=>assert.equal(r.clicks,0));check(()=>assert.equal(r.pass.value,''));
 }
-for(const electricityRelay of ['https://open.17wanxiao.com/','https://wapnew.17wanxiao.com/','https://mclient.alipay.com/h5pay/h5RouteAppSenior/index.html']){
-for(const opts of [{url:electricityRelay,action:electricityRelay},{url:electricityLogin,action:electricityRelay},{url:'http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(electricityRelay),action:electricityLogin}]){
+for(const removedRelay of ['https://open.17wanxiao.com/','https://wapnew.17wanxiao.com/','https://mclient.alipay.com/h5pay/h5RouteAppSenior/index.html']){
+for(const opts of [{url:removedRelay,action:removedRelay},{url:removedLogin,action:removedRelay},{url:'http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(removedRelay),action:removedLogin}]){
  const r=run(opts);check(()=>assert.equal(r.result.state,'unsupported'));check(()=>assert.equal(r.clicks,0));check(()=>assert.equal(r.pass.value,''));
 }
+}
+// 修复登录后仍然有效：报修回跳的 CAS service 依旧可以正常提交。
+const repairCallback='http://hqfw.jhun.edu.cn/wsbx/login/cas#/wybx';
+for(const url of ['http://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(repairCallback),'https://authserver.jhun.edu.cn/authserver/login?service='+encodeURIComponent(repairCallback)]){
+ const r=run({url,action:url});check(()=>assert.equal(r.result.state,'submitted'));check(()=>assert.equal(r.form.posted,true));
+ check(()=>assert.equal(new URL(r.form.action).searchParams.get('service'),repairCallback));
 }
 const inspect=run({inspect:true,captcha:true});check(()=>assert.equal(inspect.result.captcha,true));check(()=>assert.equal(inspect.clicks,0));check(()=>assert.equal(inspect.pass.value,''));
 console.log('Identity login adapter: '+checks+' checks passed (synthetic credentials; observed school form structure).');

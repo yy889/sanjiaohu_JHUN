@@ -1,6 +1,50 @@
-# 三角狐 v1.0.7
+# 三角狐 v1.0.8
 
 江汉大学个人课表应用，Android 8.0 及以上。
+
+## v1.0.8：新增电费查询，移除用电缴费
+
+本版用**电费查询**替换原来的**用电缴费**：不再在应用内打开缴费网页、不涉及支付，只查宿舍电表的剩余电量。
+
+### 新增：电费查询
+
+- 首页「网上报修」右侧的第二张卡片由「用电缴费」改为「电费查询」（副标题「宿舍用电余额」），沿用主题卡片样式与闪电图标。
+- 移植自 `eve_all`（Kotlin + JavaFX 桌面版），改为原生 Android 界面并套用本应用的主题体系；不再依赖桌面版、JavaFX 或 Kotlin。
+- 三级下拉选择**宿舍楼 + 楼层 + 寝室号**，改动任意一项立即重新查询，并记住上次选择。
+- 一次并排展示**灯光**与**空调**两张电表卡片：读数（单位：度）、表号、电表房号与查询时刻，卡片左侧色条区分空调（蓝）与灯光（橙），右上角状态胶囊显示「正常 / 余额不足 / 查询失败」。
+- 低于告警阈值（默认 20 度）时读数变红、卡片内出现红色提示条，页面顶部另给出告警横幅汇总。
+- 楼宇号段表内置 39 栋宿舍楼（与 `eve_all/meters.json` 一致）。**照明与空调是两套独立编号**，同一栋楼两边 id 不同；空调号段只实测确认了北区3舍（42~47），其余楼层未配置时界面会明确提示，**不会发出注定失败的请求**。
+- 表号由「楼层 + 房号后两位」自动生成：灯光 `3-<照明id>--<楼层>-<楼层><房号>`，空调 `1-<空调id>--<号段>-<楼层><房号>`。注意中间是两个连字符 `--`，写成单个会返回 `FAIL`。第 3 段与房间号首位必须**同时**等于楼层。
+- 读数为 `0.0` 是**真实的没电了**，不是查询失败：房间存在时 `returncode=100`、`canbuy=true`；房间不存在才返回 `FAIL`。
+
+### 会话：只用统一身份认证自动登录
+
+- 电表接口需要 `h5cloud.17wanxiao.com:18443` 的 `SESSION` / `sid` Cookie。本版不提供手动粘贴 Cookie，改为**用本机已保存的统一身份认证凭证自动换取**（与「网上报修」共用同一份加密凭证）。
+- 复现浏览器的完整链路：取 `salt`/`lt`/`execution` → AES 加密密码 POST 表单 → CAS 302 带 ticket 回 service → hub 用 ticket 换会话 → 沿 `redirect.action` 跳转链到 h5cloud → **访问缴费页让 `SESSION` 落地**。少了最后一步永远拿不到 `SESSION`。
+- 密码只在内存中使用，不写入任何文件、不落日志、不进诊断。
+- 账号需要验证码时，自动登录会提示改用网页登录（验证码不做识别或绕过）。
+- 换取到的会话**加密保存**在本机（`noBackupFilesDir/dianfei-session.enc`，密钥在 Android Keystore，别名 `cn.jhun.sanjiaohu.dianfei.v1`），只保留电表查询需要的三个 Cookie。
+- 会话失效时（接口返回非 JSON 的「系统繁忙」）自动清除本地会话并提示重新登录，不反复发无效请求。
+- 设置面板可重新登录或清除电费会话；清除时会一并清掉 WebView 中同站点残留的同名 Cookie。
+
+### 移除：用电缴费
+
+- 删除 `PaymentNavigation.java` 及其回归测试。
+- 移除首页「用电缴费」入口、`MainActivity.openElectricity()`、`IdentityActivity` 的 `electricity` 分支与整套支付宝跳转（`openAlipay` 与 `ALIPAY_PACKAGE`）。
+- `IdentityPolicy` 不再放行 `hub` / `open` / `wapnew.17wanxiao.com` 与 `h5cloud:18443`，也不再接受它们作为嵌套 CAS `service`；`IdentityActivity` 只保留统一身份认证与网上报修。
+- 会话清理不再触碰 `hub` / `open` / `wapnew`；诊断不再把支付宝列入已知站点。电表主机 `h5cloud.17wanxiao.com:18443` 仅用于排查电费查询本身，**不在 WebView 导航白名单内**。
+- 学校三个域名（`authserver` / `ehall` / `hqfw`）的放行、报修回跳与服务大厅识别均保持不变。
+
+### 界面复用
+
+- `UiSheet` 由只接受 `MainActivity` 改为面向新的 `SheetHost` 接口，主界面与电费查询页共用同一套底部面板；`MainActivity` 的若干界面工厂方法改为 `public` 实现该接口。外观与行为不变。
+
+### 验证
+
+- 新增纯 Java 回归：电表表号与号段表 **180** 项、接口解析与候选项规则 **70** 项、缴费移除与 CAS 加密 **57** 项；既有 Identity URL 策略 **89** 项、导航 **77** 项、诊断隐私 **57** 项、会话清理 **422** 项，以及课程解析 20 项、布局与升级缓存 12,544 项、学期 10 项、用餐分隔 13,152 项、文字对比度 6,060 项、配色 2,014 组、实验报告策略 37 项、校历 116 项全部通过。全部使用合成数据。
+- 资源 / Java / Dex 编译与 APK 打包通过，安装包已确认包含 `DianfeiActivity`、`getRoomState`、`CasLogin`，且**不含** `PaymentNavigation`、`openElectricity`、`ALIPAY_PACKAGE`、`mclient.alipay.com` 及「用电缴费」「校园用电服务」「支付」等文案；版本号 1.0.8（38）。
+- **未做真机验证**：本机没有连接的 Android 设备或模拟器，因此三级下拉交互、真实账号从统一认证换取会话、电表真实读数与告警样式均未在手机上实测；合成数据回归与打包检查不等同于真机验收。
+- **未签名**：仓库内没有 `signing/development.keystore`（原密钥不在本工作区）。`build-local.ps1` 会拒绝静默生成新密钥；要产出可覆盖安装的 APK，需先恢复原签名密钥，否则签名不同会导致无法覆盖已安装版本、用户本地数据丢失。
 
 ## v1.0.7：支付宝 H5 与 App 跳转
 
@@ -405,4 +449,43 @@ javac -encoding UTF-8 -d test-classes app/src/main/java/cn/jhun/sanjiaohu/Term.j
 java -cp test-classes cn.jhun.sanjiaohu.TermTest
 java -cp test-classes cn.jhun.sanjiaohu.MealGridTest
 java -cp test-classes cn.jhun.sanjiaohu.AdaptiveTextTest
+```
+
+电费查询与缴费移除检查（纯 Java，无需网络，全部使用合成数据）：
+
+```powershell
+javac -encoding UTF-8 -cp app-classes -d test-classes `
+  tests/base64-stubs/android/util/Base64.java `
+  tests/DianfeiMeterTest.java tests/DianfeiApiTest.java tests/ElectricityRemovalTest.java `
+  tests/IdentityPolicyTest.java tests/IdentityNavigationTest.java tests/IdentityDiagnosticsTest.java
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.DianfeiMeterTest
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.DianfeiApiTest
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.ElectricityRemovalTest
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.IdentityPolicyTest
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.IdentityNavigationTest
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.IdentityDiagnosticsTest
+```
+
+> `tests/base64-stubs` 是**测试专用**的 `android.util.Base64` 替代实现，只为让纯 JVM 测试能跑 CAS 加密检查，不参与 APK 打包。
+> `app-classes` 指应用源码编译输出目录。
+
+会话清理范围检查（需要 cookie stub）：
+
+```powershell
+javac -encoding UTF-8 -cp app-classes -d test-classes `
+  tests/cookie-stubs/android/webkit/CookieManager.java `
+  tests/cookie-stubs/android/webkit/WebStorage.java `
+  tests/cookie-stubs/android/webkit/ValueCallback.java `
+  tests/cookie-stubs/SessionCookiesTest.java
+java -cp "test-classes;app-classes" cn.jhun.sanjiaohu.SessionCookiesTest
+```
+
+### 本机打包注意
+
+`build-local.ps1` 直接调用 `aapt2`。当前工作目录名含空格（`sanjiaohu_JHUN - 副本`），
+而 `aapt2 compile --dir` 无法打开含空格的路径，脚本会在资源编译一步失败。
+把项目放到**不含空格**的路径（例如 `D:\build\sanjiaohu`）再运行即可：
+
+```powershell
+./build-local.ps1 -Sdk 'Android SDK 路径' -Java 'JDK 路径' -Platform 'android-36.1' -BuildTools '36.1.0'
 ```

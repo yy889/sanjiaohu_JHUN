@@ -33,11 +33,10 @@ public final class IdentityActivity extends Activity {
     final ExecutorService vault=Executors.newSingleThreadExecutor();
     final IdentityNavigation navigation=new IdentityNavigation();
     final IdentityDiagnostics diagnostics=new IdentityDiagnostics();
-    long lastAlipayLaunch;
     String adapter,documentProbe,lastDocument="",lastUrl="",pendingAccount,pendingPassword;
     boolean documentReady;
     int documentEpoch;
-    boolean repair,electricity,loaded,attempting,submitted,saving,failed,autoTried,ticketSeen,manualPage,clearing;
+    boolean repair,loaded,attempting,submitted,saving,failed,autoTried,ticketSeen,manualPage,clearing;
     final Runnable pageTimeout=()->{if(!loaded&&!navigation.stopped&&!isDestroyed())networkError("学校页面加载超时，已停止加载。请点击重新加载后再试。");};
     long deadline,submittedAt;
     int generation;
@@ -46,8 +45,7 @@ public final class IdentityActivity extends Activity {
 
     @Override public void onCreate(Bundle saved){
         super.onCreate(saved);
-        electricity=getIntent().getBooleanExtra("electricity",false);
-        repair=!electricity&&getIntent().getBooleanExtra("repair",false);
+        repair=getIntent().getBooleanExtra("repair",false);
         prefs=getSharedPreferences("identity",MODE_PRIVATE);
         theme=AppTheme.from(this,getSharedPreferences("settings",MODE_PRIVATE).getInt("themeColor",0xff2ecbff));
         try(InputStream in=getAssets().open("identity-login.js");ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] bytes=new byte[4096];int n;while((n=in.read(bytes))!=-1)out.write(bytes,0,n);adapter=out.toString("UTF-8");}catch(IOException e){finish();return;}
@@ -55,13 +53,13 @@ public final class IdentityActivity extends Activity {
         AppTheme.applySystemBars(this,theme);
         LinearLayout root=column();root.setBackgroundColor(theme.surface);root.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i.consumeSystemWindowInsets();});
         LinearLayout header=row();header.setPadding(dp(18),dp(10),dp(18),dp(10));header.addView(action("‹",false,()->back()),new LinearLayout.LayoutParams(dp(44),dp(44)));header.getChildAt(0).setContentDescription("返回");
-        LinearLayout titles=column();titles.setPadding(dp(14),0,dp(8),0);titles.addView(text(electricity?"用电缴费":repair?"网上报修":"统一身份认证",20,theme.text,true));subtitle=text("江汉大学 · 校园服务",11,theme.muted,false);titles.addView(subtitle);header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout titles=column();titles.setPadding(dp(14),0,dp(8),0);titles.addView(text(repair?"网上报修":"统一身份认证",20,theme.text,true));subtitle=text("江汉大学 · 校园服务",11,theme.muted,false);titles.addView(subtitle);header.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         TextView manage=action("账号",false,()->manualLogin());header.addView(manage,new LinearLayout.LayoutParams(dp(52),dp(44)));TextView refresh=action("↻",false,()->reload());refresh.setContentDescription("重新加载");LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(44),dp(44));rp.leftMargin=dp(8);header.addView(refresh,rp);root.addView(header);
         progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgressTintList(ColorStateList.valueOf(theme.primary));root.addView(progress,new LinearLayout.LayoutParams(-1,dp(3)));
         body=new FrameLayout(this);root.addView(body,new LinearLayout.LayoutParams(-1,0,1));buildForm();buildError();createWeb();setContentView(root);
-        if(repair||electricity){showWeb();startPage(loginEntry());}else prepareLogin(false);
+        if(repair){showWeb();startPage(loginEntry());}else prepareLogin(false);
     }
-    String loginEntry(){return electricity?IdentityPolicy.ELECTRICITY_LOGIN:IdentityPolicy.LOGIN;}
+    String loginEntry(){return IdentityPolicy.LOGIN;}
     void buildForm(){
         form=new ScrollView(this);form.setFillViewport(true);form.setBackgroundColor(theme.surface);form.setVerticalScrollBarEnabled(false);
         LinearLayout content=column();content.setPadding(dp(26),dp(22),dp(26),dp(24));form.addView(content);
@@ -97,13 +95,10 @@ public final class IdentityActivity extends Activity {
                 if(request.isForMainFrame())diagnostics.add("GET".equals(request.getMethod())?IdentityDiagnostics.Event.GET:"POST".equals(request.getMethod())?IdentityDiagnostics.Event.POST:IdentityDiagnostics.Event.OTHER_METHOD,url,request.isRedirect()?1:0);
                 // The direct CAS callback redirects to /wsbx/#/wybx, a directory returning 403.
                 // Open the actual mobile HTML entry after that callback, preserving its cookies.
-                if(!electricity&&request.isForMainFrame()&&"GET".equals(request.getMethod())&&IdentityPolicy.repairRoot(url)){view.loadUrl(IdentityPolicy.REPAIR);return true;}
+                if(!repair&&request.isForMainFrame()&&"GET".equals(request.getMethod())&&IdentityPolicy.repairRoot(url)){view.loadUrl(IdentityPolicy.REPAIR);return true;}
                 // Follow the school's real redirect without issuing another loadUrl.
                 // Android cleartext permission is scoped to the exact school hosts.
-                if(IdentityPolicy.allowed(url)||(electricity&&PaymentNavigation.alipayWeb(url))){if(request.isForMainFrame()){observeTicket(url);if(IdentityPolicy.parse(url).getHost()==null)diagnostics.add(IdentityDiagnostics.Event.LENIENT_URL,url,0);}return false;}
-                if(PaymentNavigation.sourceAllowed(electricity,lastUrl,request.isForMainFrame(),request.getMethod())){
-                    String link=PaymentNavigation.alipayLink(url);if(link!=null){openAlipay(link);return true;}
-                }
+                if(IdentityPolicy.allowed(url)){if(request.isForMainFrame()){observeTicket(url);if(IdentityPolicy.parse(url).getHost()==null)diagnostics.add(IdentityDiagnostics.Event.LENIENT_URL,url,0);}return false;}
                 diagnostics.add(request.isForMainFrame()?IdentityDiagnostics.Event.BLOCKED_MAIN:IdentityDiagnostics.Event.BLOCKED_FRAME,url,0);
                 if(request.isForMainFrame())networkError("学校跳转到了暂不支持的地址："+IdentityDiagnostics.route(url)+"。请复制连接诊断以便排查。");return true;
             }
@@ -112,21 +107,19 @@ public final class IdentityActivity extends Activity {
                 if(!navigation.visit(url,SystemClock.elapsedRealtime())){networkError("学校页面出现重复跳转，已停止循环加载。请重新加载或返回后重试。");return;}
                 // Observe a fresh CAS ticket only when it is redirected from the real IdP.
                 observeTicket(url);
-                if(!electricity&&IdentityPolicy.repairRoot(url)){view.loadUrl(IdentityPolicy.REPAIR);return;}
+                if(!repair&&IdentityPolicy.repairRoot(url)){view.loadUrl(IdentityPolicy.REPAIR);return;}
                 lastUrl=url;loaded=false;failed=false;errorPanel.setVisibility(View.GONE);progress.setVisibility(View.VISIBLE);subtitle.setText("正在连接校园服务…");
                 handler.removeCallbacks(pageTimeout);handler.postDelayed(pageTimeout,45000);
                 if(IdentityPolicy.auth(url)&&!manualPage)showForm();
             }
             @Override public void onPageFinished(WebView view,String url){
-                if(failed||navigation.stopped||isFinishing()||!currentDocument(url))return;loaded=true;handler.removeCallbacks(pageTimeout);progress.setVisibility(View.INVISIBLE);subtitle.setText(electricity?"校园用电服务":repair?"校园后勤服务":"独立管理校园服务账号");
+                if(failed||navigation.stopped||isFinishing()||!currentDocument(url))return;loaded=true;handler.removeCallbacks(pageTimeout);progress.setVisibility(View.INVISIBLE);subtitle.setText(repair?"校园后勤服务":"独立管理校园服务账号");
                 documentReady=true;diagnostics.add(IdentityDiagnostics.Event.FINISH,url,0);probeDocument();
                 // Let the school's desktop landing finish consuming its SSO session first.
                 if(repair&&IdentityPolicy.desktopRepair(url)){showWeb();view.loadUrl(IdentityPolicy.REPAIR);return;}
-                if(IdentityPolicy.auth(url)){prepareSchoolForm();if(!attempting&&!manualPage){showForm();inspect();if((repair||electricity)&&!autoTried)tryAutomatic();}}
-                else if(electricity&&IdentityPolicy.electricity(url)){showWeb();if(ticketSeen)complete();}
-                else if(electricity&&PaymentNavigation.alipayWeb(url)){showWeb();}
-                else if(!electricity&&ticketSeen&&(IdentityPolicy.hall(url)||IdentityPolicy.repairLanding(url))){complete();}
-                else if(!electricity&&IdentityPolicy.hall(url)){verifyHall(0);}
+                if(IdentityPolicy.auth(url)){prepareSchoolForm();if(!attempting&&!manualPage){showForm();inspect();if(repair&&!autoTried)tryAutomatic();}}
+                else if(!repair&&ticketSeen&&(IdentityPolicy.hall(url)||IdentityPolicy.repairLanding(url))){complete();}
+                else if(!repair&&IdentityPolicy.hall(url)){verifyHall(0);}
                 else if(!IdentityPolicy.auth(url)&&manualPage){showWeb();}
             }
             @Override public void onPageCommitVisible(WebView view,String url){if(!navigation.stopped&&currentDocument(url)){documentReady=true;diagnostics.add(IdentityDiagnostics.Event.COMMIT,url,0);probeDocument();if(IdentityPolicy.auth(url))prepareSchoolForm();}}
@@ -154,15 +147,6 @@ public final class IdentityActivity extends Activity {
     void observeTicket(String url){if(IdentityPolicy.auth(lastUrl)&&IdentityPolicy.allowed(url)&&!IdentityPolicy.auth(url)){String ticket=Uri.parse(url).getQueryParameter("ticket");if(ticket!=null&&ticket.startsWith("ST-"))ticketSeen=true;}}
     boolean currentDocument(String url){return web!=null&&url!=null&&web.getUrl()!=null&&url.split("#",2)[0].equals(web.getUrl().split("#",2)[0]);}
     void startPage(String url){documentReady=false;documentEpoch++;diagnostics.add(IdentityDiagnostics.Event.RETRY,url,0);navigation.begin(SystemClock.elapsedRealtime());ticketSeen=false;failed=false;loaded=false;lastUrl="";if(web==null)createWeb();web.stopLoading();web.loadUrl(url);}
-    void openAlipay(String link){
-        long now=SystemClock.elapsedRealtime();if(lastAlipayLaunch>0&&now-lastAlipayLaunch<2000)return;
-        lastAlipayLaunch=now;handler.removeCallbacks(pageTimeout);progress.setVisibility(View.INVISIBLE);showWeb();
-        // Construct a fresh intent, fixed to Alipay. Never launch a webpage's raw Intent.
-        Intent intent=new Intent(Intent.ACTION_VIEW,Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(PaymentNavigation.ALIPAY_PACKAGE);
-        try{startActivity(intent);diagnostics.add(IdentityDiagnostics.Event.ALIPAY_OPEN,link,0);subtitle.setText("已打开支付宝，请在支付宝内确认付款");}
-        catch(ActivityNotFoundException e){diagnostics.add(IdentityDiagnostics.Event.ALIPAY_UNAVAILABLE,link,0);subtitle.setText("未找到支付宝，可继续使用网页支付");Toast.makeText(this,"未找到可用的支付宝，请安装支付宝或在页面选择其他支付方式。",Toast.LENGTH_LONG).show();}
-        catch(SecurityException e){diagnostics.add(IdentityDiagnostics.Event.ALIPAY_UNAVAILABLE,link,1);subtitle.setText("系统未允许打开支付宝");Toast.makeText(this,"系统未允许打开支付宝，请检查手机设置或使用网页支付。",Toast.LENGTH_LONG).show();}
-    }
     void verifyHall(int retries){
         if(web==null||!IdentityPolicy.hall(web.getUrl()))return;int id=generation;
         // Some WebView versions omit intermediate redirect callbacks. Require a
@@ -239,7 +223,7 @@ public final class IdentityActivity extends Activity {
             boolean stored=preserve;try{if(keep){IdentityCredentialStore.save(this,user,secret);stored=true;}else if(!preserve){IdentityCredentialStore.clear(this);}}catch(Exception e){stored=false;IdentityCredentialStore.clear(this);}
             prefs.edit().putBoolean("completed",true).putBoolean("blocked",false).putBoolean("autoLogin",stored&&(keep||previousAuto)).putLong("lastAuthAt",System.currentTimeMillis()).apply();final boolean didStore=stored;
             handler.post(()->{if(isDestroyed())return;saving=false;setInputs(true);if(keep&&!didStore)Toast.makeText(this,"认证成功，但凭证保存失败，下次需要手动登录",Toast.LENGTH_LONG).show();
-                if(electricity){manualPage=false;showWeb();}else if(repair){manualPage=false;showWeb();if(!IdentityPolicy.repairLanding(web.getUrl()))web.loadUrl(IdentityPolicy.REPAIR);}else{Toast.makeText(this,didStore?"统一认证登录成功，凭证已单独加密保存":"统一认证登录成功",Toast.LENGTH_SHORT).show();finish();}
+                if(repair){manualPage=false;showWeb();if(!IdentityPolicy.repairLanding(web.getUrl()))web.loadUrl(IdentityPolicy.REPAIR);}else{Toast.makeText(this,didStore?"统一认证登录成功，凭证已单独加密保存":"统一认证登录成功",Toast.LENGTH_SHORT).show();finish();}
             });
         });
     }

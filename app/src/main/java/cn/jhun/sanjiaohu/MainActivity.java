@@ -20,7 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements SheetHost {
     static final String HOME="https://jwxt.jhun.edu.cn/frame/homes.action";
     static final String SOURCE="https://jwxt.jhun.edu.cn/frame/desk/showLessonSchedule4User.action";
     int BG,INK,MUTED,PRIMARY,ACCENT_TEXT,ON_PRIMARY;
@@ -385,7 +385,7 @@ public class MainActivity extends Activity {
         LinearLayout top=row();top.addView(homeEntry("自定义课程","添加与管理",8,()->showCustomCourses()),new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams spacer=new LinearLayout.LayoutParams(0,-2,1);spacer.leftMargin=dp(12);top.addView(homeEntry("成绩查看","按学期查看",11,()->openGrades()),spacer);content.addView(top);
         space(content,12);
         LinearLayout campus=row();campus.addView(homeEntry("校园地图","探索校园",13,()->openCampusMap()),new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams calendarSpace=new LinearLayout.LayoutParams(0,-2,1);calendarSpace.leftMargin=dp(12);campus.addView(homeEntry("校历","2026—2027 学年",14,()->startActivity(new Intent(this,AcademicCalendarActivity.class))),calendarSpace);content.addView(campus);
-        space(content,12);LinearLayout services=row();services.addView(homeEntry("网上报修","校园后勤服务",15,()->openIdentity(true)),new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams electricitySpace=new LinearLayout.LayoutParams(0,-2,1);electricitySpace.leftMargin=dp(12);services.addView(homeEntry("用电缴费","校园用电服务",17,()->openElectricity()),electricitySpace);content.addView(services);
+        space(content,12);LinearLayout services=row();services.addView(homeEntry("网上报修","校园后勤服务",15,()->openIdentity(true)),new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams electricitySpace=new LinearLayout.LayoutParams(0,-2,1);electricitySpace.leftMargin=dp(12);services.addView(homeEntry("电费查询","宿舍用电余额",17,()->openDianfei()),electricitySpace);content.addView(services);
         space(content,12);LinearLayout labs=row();labs.addView(homeEntry("大物实验报告","需连接校园网",18,()->openPhysicsLab()),new LinearLayout.LayoutParams(0,-2,1));LinearLayout.LayoutParams labSpace=new LinearLayout.LayoutParams(0,1,1);labSpace.leftMargin=dp(12);labs.addView(new View(this),labSpace);content.addView(labs);return content;
     }
     void openCampusMap(){
@@ -417,7 +417,7 @@ public class MainActivity extends Activity {
         LinearLayout identity=panel();identity.addView(label("统一身份认证",22,INK,true));space(identity,8);
         android.content.SharedPreferences identityPrefs=getSharedPreferences("identity",MODE_PRIVATE);boolean savedIdentity=IdentityCredentialStore.exists(this);
         identity.addView(label(identityBusy?"正在清除统一认证会话…":identityPrefs.getBoolean("blocked",false)?"需要重新登录或完成学校验证":identityPrefs.getBoolean("completed",false)?"已有登录记录 · 使用时验证会话":savedIdentity?"已保存凭证 · 尚未验证":"未登录",14,INK,true));space(identity,8);
-        identity.addView(label("用于服务大厅、网上报修、用电缴费，与教务账号分别管理。",13,MUTED,false));long identityAt=identityPrefs.getLong("lastAuthAt",0);if(identityAt>0){space(identity,6);identity.addView(label("最近验证 "+stamp(identityAt),12,MUTED,false));}space(identity,18);
+        identity.addView(label("用于服务大厅与网上报修，与教务账号分别管理。",13,MUTED,false));long identityAt=identityPrefs.getLong("lastAuthAt",0);if(identityAt>0){space(identity,6);identity.addView(label("最近验证 "+stamp(identityAt),12,MUTED,false));}space(identity,18);
         identity.addView(themedButton(savedIdentity?"登录 / 管理统一认证账号":"登录统一认证账号",()->openIdentity(false),true),new LinearLayout.LayoutParams(-1,dp(48)));space(identity,12);
         Switch identityAutomatic=new Switch(this);SwitchTheme.apply(identityAutomatic,palette);identityAutomatic.setText("统一认证自动登录");identityAutomatic.setTextSize(14);identityAutomatic.setTextColor(INK);identityAutomatic.setChecked(savedIdentity&&identityPrefs.getBoolean("autoLogin",false));identityAutomatic.setEnabled(!identityBusy);identity.addView(identityAutomatic);
         identityAutomatic.setOnCheckedChangeListener((v,enabled)->{if(enabled&&(!savedIdentity||!identityPrefs.getBoolean("completed",false))){identityAutomatic.setChecked(false);openIdentity(false);}else identityPrefs.edit().putBoolean("autoLogin",enabled).apply();});space(identity,10);
@@ -426,7 +426,7 @@ public class MainActivity extends Activity {
         content.addView(label("课表与自定义课程保存在本机，离线可查看。",12,MUTED,false));return content;
     }
     void openIdentity(boolean repair){if(identityBusy)return;Intent intent=new Intent(this,IdentityActivity.class);intent.putExtra("repair",repair);startActivity(intent);}
-    void openElectricity(){if(identityBusy)return;startActivity(new Intent(this,IdentityActivity.class).putExtra("electricity",true));}
+    void openDianfei(){startActivity(new Intent(this,DianfeiActivity.class));}
     void clearIdentityPrompt(){
         if(identityBusy)return;UiSheet sheet=new UiSheet(this,"清除统一认证？","教务账号和本地课程继续保留",.43f);sheet.body.addView(label("将清除本机统一认证凭证与校园服务会话，并关闭统一认证自动登录。",14,INK,false));
         sheet.actions(this,"确认清除",()->{sheet.dialog.dismiss();identityBusy=true;render();authIo.execute(()->{
@@ -500,16 +500,21 @@ public class MainActivity extends Activity {
         sheet.dialog.setOnDismissListener(d->{if(activeSheet==sheet.dialog)activeSheet=null;if(!isDestroyed())for(CourseCardView card:visibleCards)styleCourseCard(card,(Integer)card.getTag(),transparency());});
     }
     void place(FrameLayout parent,View v,int x,int y,int w,int h){FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(w,h);lp.leftMargin=x;lp.topMargin=y;parent.addView(v,lp);}
-    int dp(float x){return (int)(x*getResources().getDisplayMetrics().density+0.5f);}
-    LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
-    LinearLayout row(){LinearLayout l=new LinearLayout(this);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
+    public int dp(float x){return (int)(x*getResources().getDisplayMetrics().density+0.5f);}
+    // ---- SheetHost ----
+    @Override public ThemePalette palette(){return palette;}
+    @Override public int ink(){return INK;}
+    @Override public int muted(){return MUTED;}
+    @Override public int screenWidth(){return getResources().getDisplayMetrics().widthPixels;}
+    public LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
+    public LinearLayout row(){LinearLayout l=new LinearLayout(this);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
     LinearLayout.LayoutParams weighted(){return new LinearLayout.LayoutParams(0,dp(44),1);}
-    TextView label(String s,int size,int color,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setFontFeatureSettings("kern");if(bold)v.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));return v;}
+    public TextView label(String s,int size,int color,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setFontFeatureSettings("kern");if(bold)v.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));return v;}
     TextView button(String s,Runnable action){TextView v=label(s,13,ACCENT_TEXT,true);v.setGravity(Gravity.CENTER);v.setPadding(dp(12),dp(10),dp(12),dp(10));v.setMinHeight(dp(44));v.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf((PRIMARY&0xffffff)|0x33000000),shape(Color.TRANSPARENT,14),shape(palette.rippleMask,14)));v.setOnClickListener(x->action.run());v.setFocusable(true);v.setContentDescription(s);return v;}
-    TextView themedButton(String text,Runnable action,boolean filled){
+    public TextView themedButton(String text,Runnable action,boolean filled){
         TextView control=button(text,action);control.setTextColor(filled?ON_PRIMARY:palette.deepAccent);control.setIncludeFontPadding(false);control.setPadding(dp(14),0,dp(14),0);
         GradientDrawable surface=shape(filled?PRIMARY:palette.entrySurface,15);if(!filled)surface.setStroke(dp(1),palette.outline);
         control.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(((filled?ON_PRIMARY:PRIMARY)&0xffffff)|0x22000000),surface,shape(palette.rippleMask,15)));return control;
     }
-    GradientDrawable shape(int c,int radius){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(radius));return d;}
+    public GradientDrawable shape(int c,int radius){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(radius));return d;}
 }
